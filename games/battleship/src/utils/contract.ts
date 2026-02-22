@@ -189,6 +189,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+export function parseError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    if (typeof e['message'] === 'string') return e['message'];
+    if (typeof e['error'] === 'string') return e['error'];
+    if (typeof e['code'] !== 'undefined') return `Wallet error (code ${e['code']})`;
+    const json = JSON.stringify(err);
+    if (json !== '{}') return json;
+  }
+  return 'Unknown error';
+}
+
 // ─── Contract function wrappers ───────────────────────────────────────────────
 
 export async function joinGame(

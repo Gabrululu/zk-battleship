@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CONTRACT_ID } from '../utils/contract';
+import { CONTRACT_ID, parseError } from '../utils/contract';
 import type { UseWallet } from '../hooks/useWallet';
 import { playPing } from '../utils/sounds';
 
@@ -43,7 +43,7 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
       setP1Joined(true);
       playPing();
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : String(e));
+      setLocalError(parseError(e));
     }
   };
 

@@ -6,7 +6,7 @@ import { GameOver } from './components/GameOver';
 import { PlayerProfile } from './components/PlayerProfile';
 import { useGameState } from './hooks/useGameState';
 import { useWallet } from './hooks/useWallet';
-import { joinGame, CONTRACT_ID } from './utils/contract';
+import { joinGame, CONTRACT_ID, parseError } from './utils/contract';
 import { initAudio, toggleMute } from './utils/sounds';
 
 type AppScreen = 'lobby' | 'commit' | 'play' | 'gameover';
@@ -125,7 +125,7 @@ export default function App() {
         await joinGame(stellar.address, stellar.signTransaction);
         await refresh();
       } catch (err) {
-        setJoinError(err instanceof Error ? err.message : String(err));
+        setJoinError(parseError(err));
       } finally {
         setJoining(false);
       }
