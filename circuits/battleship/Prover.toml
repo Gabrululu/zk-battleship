@@ -1,0 +1,43 @@
+# Prover.toml — example inputs for `nargo prove`
+#
+# Board layout (5x5, row-major):
+#   Ships at: (col=0,row=0), (col=2,row=1), (col=4,row=4)
+#
+#   row 0: [1, 0, 0, 0, 0]
+#   row 1: [0, 0, 1, 0, 0]
+#   row 2: [0, 0, 0, 0, 0]
+#   row 3: [0, 0, 0, 0, 0]
+#   row 4: [0, 0, 0, 0, 1]
+#
+# Shot: col=0, row=0  →  HIT (is_hit = true)
+#
+# To generate board_hash, run:
+#   nargo execute   (reads this file, prints the return value if you add a
+#                    return to main, or use nargo test to see computed hashes)
+#
+# IMPORTANT: board_hash below was computed with salt=0xdeadbeef and the board
+# above using the circuit's compute_board_hash function.
+# Re-generate it by temporarily adding `return board_hash;` to main and
+# running `nargo execute`, then paste the output here.
+
+# ── Private inputs ────────────────────────────────────────────────────────────
+
+# board is a 2-D array: outer index = row (y), inner index = col (x)
+board = [
+    ["1", "0", "0", "0", "0"],
+    ["0", "0", "1", "0", "0"],
+    ["0", "0", "0", "0", "0"],
+    ["0", "0", "0", "0", "0"],
+    ["0", "0", "0", "0", "1"]
+]
+
+salt = "0xdeadbeef"
+
+# ── Public inputs ─────────────────────────────────────────────────────────────
+# Replace this value with the actual Poseidon2 hash output from `nargo execute`
+
+board_hash = "0x0fc390b5935ba7f95ab3b603804e7e2d4de390ba447aebc5effc49ad38d02f20"
+
+shot_x = "0"
+shot_y = "0"
+is_hit = true
