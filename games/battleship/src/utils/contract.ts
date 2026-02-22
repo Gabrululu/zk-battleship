@@ -10,6 +10,7 @@ import {
   Address,
   nativeToScVal,
   scValToNative,
+  strKey,
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
@@ -150,12 +151,12 @@ function addressToStr(val: unknown): string {
   
   // If it's a Uint8Array, decode it as an Address
   if (val instanceof Uint8Array) {
-    // Addresses are 32 bytes of data that need to be Base32-encoded with a version byte
+    // Addresses are 32 bytes of data
     if (val.length === 32) {
       try {
-        // Try to use the Address class to properly encode
-        const addr = new Address(val);
-        return addr.toString();
+        // Convert Uint8Array to Buffer, then encode as Stellar address
+        const buff = Buffer.from(val);
+        return strKey.encodeEd25519PublicKey(buff);
       } catch {
         // Fallback to hex
         return uint8ToHex(val);
