@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["battleship"]
+
+[profile.release]
+opt-level = "z"     # Optimiza por tamaño (importante para contratos)
+overflow-checks = true
