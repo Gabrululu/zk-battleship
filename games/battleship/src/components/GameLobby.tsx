@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CONTRACT_ID } from '../utils/contract';
 import type { UseWallet } from '../hooks/useWallet';
 import { playPing } from '../utils/sounds';
@@ -9,27 +9,41 @@ interface GameLobbyProps {
   joining: boolean;
   joinError: string | null;
   inviteContractId?: string | null;
+  onRefresh?: () => void;
 }
 
-export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractId }: GameLobbyProps) {
+export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractId, onRefresh }: GameLobbyProps) {
   const [view, setView] = useState<'menu' | 'create' | 'join'>(
     inviteContractId ? 'join' : 'menu',
   );
   const [p1Joined, setP1Joined] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // If arriving via invite link, switch to join view once wallet connects
   useEffect(() => {
     if (inviteContractId && stellar.connected && view === 'menu') setView('join');
   }, [inviteContractId, stellar.connected, view]);
 
+  // Poll for P2 joining while P1 is waiting
+  useEffect(() => {
+    if (p1Joined && onRefresh) {
+      pollRef.current = setInterval(onRefresh, 4000);
+    }
+    return () => clearInterval(pollRef.current);
+  }, [p1Joined, onRefresh]);
+
   const inviteUrl = `${window.location.origin}${window.location.pathname}?game=${CONTRACT_ID}`;
 
   const handleP1Join = async () => {
-    await onJoin('player1');
-    if (!joinError) {
+    setLocalError(null);
+    try {
+      await onJoin('player1');
       setP1Joined(true);
       playPing();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -101,7 +115,7 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
                     {joining ? <span className="flex items-center gap-2"><span className="spinner" /> JOINING...</span> : 'JOIN AS PLAYER 1'}
                   </button>
                   <button className="btn-secondary w-full" onClick={() => setView('menu')}>← BACK</button>
-                  {joinError && <div className="error-msg">{joinError}</div>}
+                  {(localError || joinError) && <div className="error-msg">{localError ?? joinError}</div>}
                 </>
               ) : (
                 <div className="invite-panel">

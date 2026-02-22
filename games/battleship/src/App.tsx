@@ -181,7 +181,7 @@ export default function App() {
 
         <main className="app-main">
           {screen === 'lobby' && (
-            <GameLobby stellar={stellar} onJoin={handleJoin} joining={joining} joinError={joinError} inviteContractId={inviteContractId} />
+            <GameLobby stellar={stellar} onJoin={handleJoin} joining={joining} joinError={joinError} inviteContractId={inviteContractId} onRefresh={refresh} />
           )}
           {screen === 'commit' && gameState && stellar.address && (
             <CommitPhase
