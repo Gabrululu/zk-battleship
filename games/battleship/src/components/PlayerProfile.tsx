@@ -6,6 +6,12 @@ interface PlayerProfileProps {
   onClose: () => void;
 }
 
+// Guard: returns true only for real Stellar addresses (G... 56 chars)
+function isValidAddress(addr: string | null | undefined): boolean {
+  if (!addr || typeof addr !== 'string') return false;
+  return addr.length === 56 && (addr.startsWith('G') || addr.startsWith('C'));
+}
+
 export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -14,34 +20,46 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
-    // Basic address check - allow Address class to validate
-    if (!address || address.length === 0) {
-      setError('Invalid wallet address');
+    setStats(null);
+
+    // Validate address before touching the network
+    if (!isValidAddress(address)) {
+      setError('Invalid wallet address — please reconnect your wallet');
       setLoading(false);
       return;
     }
 
     try {
+      // getPlayerStats never throws — returns null on any failure
       const s = await getPlayerStats(address);
-      setStats(s);
+      setStats(s); // null = no record yet, that's fine
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      // Should not reach here since getPlayerStats catches internally,
+      // but just in case:
+      console.error('PlayerProfile load error:', err);
+      setError('Could not load combat record');
     } finally {
       setLoading(false);
     }
   }, [address]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
-  const winRate = stats && stats.games_played > 0
-    ? Math.round((stats.games_won / stats.games_played) * 100)
-    : 0;
-  const accuracy = stats && stats.total_shots_fired > 0
-    ? Math.round((stats.total_hits / stats.total_shots_fired) * 100)
-    : 0;
+  const short = isValidAddress(address)
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : 'Unknown';
+
+  const winRate =
+    stats && stats.games_played > 0
+      ? Math.round((stats.games_won / stats.games_played) * 100)
+      : 0;
+
+  const accuracy =
+    stats && stats.total_shots_fired > 0
+      ? Math.round((stats.total_hits / stats.total_shots_fired) * 100)
+      : 0;
 
   return (
     <div className="profile-overlay" onClick={onClose}>
@@ -70,18 +88,31 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
           </div>
         )}
 
-        {error && (
-          <div className="error-msg" style={{ margin: '1rem 0' }}>{error}</div>
+        {/* Error state — shown only for real errors, not missing stats */}
+        {!loading && error && (
+          <div className="profile-empty">
+            <div className="profile-empty-icon" style={{ color: 'var(--danger)' }}>⚠</div>
+            <div className="profile-empty-title" style={{ color: 'var(--danger-glow)' }}>
+              {error}
+            </div>
+            <div className="profile-empty-sub">
+              Try disconnecting and reconnecting your wallet.
+            </div>
+          </div>
         )}
 
+        {/* No record yet — this is normal for new players */}
         {!loading && !error && !stats && (
           <div className="profile-empty">
             <div className="profile-empty-icon">⬡</div>
             <div className="profile-empty-title">NO COMBAT RECORD</div>
-            <div className="profile-empty-sub">Complete a game to start building your record.</div>
+            <div className="profile-empty-sub">
+              Complete a game to start building your record.
+            </div>
           </div>
         )}
 
+        {/* Stats — only shown when we have real data */}
         {!loading && !error && stats && (
           <>
             {/* ── Primary stats row ── */}
@@ -90,12 +121,16 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
                 <div className="stat-value">{stats.games_played}</div>
                 <div className="stat-label">GAMES PLAYED</div>
               </div>
-              <div className="stat-block stat-block--win">
-                <div className="stat-value" style={{ color: 'var(--sonar)' }}>{stats.games_won}</div>
+              <div className="stat-block">
+                <div className="stat-value" style={{ color: 'var(--sonar)' }}>
+                  {stats.games_won}
+                </div>
                 <div className="stat-label">VICTORIES</div>
               </div>
-              <div className="stat-block stat-block--loss">
-                <div className="stat-value" style={{ color: 'var(--danger)' }}>{stats.games_played - stats.games_won}</div>
+              <div className="stat-block">
+                <div className="stat-value" style={{ color: 'var(--danger)' }}>
+                  {stats.games_played - stats.games_won}
+                </div>
                 <div className="stat-label">DEFEATS</div>
               </div>
             </div>
@@ -118,7 +153,7 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
             <div className="profile-rate-row">
               <div className="profile-rate-label">
                 <span>ACCURACY</span>
-                <span style={{ color: 'var(--plasma)' }}>{accuracy}%</span>
+                <span style={{ color: 'var(--plasma-bright)' }}>{accuracy}%</span>
               </div>
               <div className="profile-rate-bar">
                 <div
@@ -145,8 +180,14 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
               <div className="stat-block">
                 <div className="stat-value">
                   {stats.total_shots_received > 0
-                    ? Math.round(((stats.total_shots_received - (stats.games_played - stats.games_won) * 3) / stats.total_shots_received) * 100)
-                    : 0}%
+                    ? Math.round(
+                        ((stats.total_shots_received -
+                          (stats.games_played - stats.games_won) * 3) /
+                          stats.total_shots_received) *
+                          100,
+                      )
+                    : 0}
+                  %
                 </div>
                 <div className="stat-label">SURVIVED</div>
               </div>
