@@ -1,6 +1,5 @@
 // contract.ts — ZK Battleship
-// Parses Soroban XDR directly (no scValToNative) to avoid "Bad union switch".
-// Matches lib.rs where get_state() returns GameState directly (not Option).
+// Parses Soroban XDR directly. Never calls scValToNative (causes Bad union switch).
 
 import {
   Contract,
@@ -63,17 +62,14 @@ async function getServer(): Promise<SorobanRpc.Server> {
   return _server;
 }
 
-// ─── Direct XDR parsers ───────────────────────────────────────────────────────
-// We read ScVal fields directly instead of scValToNative, which throws
-// "Bad union switch" on Soroban enum discriminants it doesn't recognize.
-
-function svType(sv: xdr.ScVal | undefined): number {
-  try { return sv?.switch().value ?? -1; } catch { return -1; }
-}
+// ─── Direct XDR field readers ─────────────────────────────────────────────────
+// Read xdr.ScVal fields directly without scValToNative.
+// scValToNative throws "Bad union switch: 4" on Soroban enum discriminants.
 
 function svAddress(sv: xdr.ScVal | undefined): string {
   try {
-    if (!sv || svType(sv) !== xdr.ScValType.scvAddress().value) return '';
+    if (!sv) return '';
+    if (sv.switch().value !== xdr.ScValType.scvAddress().value) return '';
     const addr = sv.address();
     if (addr.switch().value === xdr.ScAddressType.scAddressTypeAccount().value) {
       return StrKey.encodeEd25519PublicKey(addr.accountId().ed25519());
@@ -87,37 +83,36 @@ function svAddress(sv: xdr.ScVal | undefined): string {
 
 function svU32(sv: xdr.ScVal | undefined, fallback = 0): number {
   try {
-    if (!sv || svType(sv) !== xdr.ScValType.scvU32().value) return fallback;
+    if (!sv || sv.switch().value !== xdr.ScValType.scvU32().value) return fallback;
     return sv.u32();
   } catch { return fallback; }
 }
 
 function svBool(sv: xdr.ScVal | undefined): boolean {
   try {
-    if (!sv || svType(sv) !== xdr.ScValType.scvBool().value) return false;
+    if (!sv || sv.switch().value !== xdr.ScValType.scvBool().value) return false;
     return sv.b();
   } catch { return false; }
 }
 
 function svBytes(sv: xdr.ScVal | undefined): string {
   try {
-    if (!sv || svType(sv) !== xdr.ScValType.scvBytes().value) return '';
+    if (!sv || sv.switch().value !== xdr.ScValType.scvBytes().value) return '';
     return '0x' + Buffer.from(sv.bytes()).toString('hex');
   } catch { return ''; }
 }
 
-// Parse a ScvMap into a Record<key, ScVal> — safe, never throws
+// Build a key→ScVal lookup from a ScvMap
 function svMap(sv: xdr.ScVal | undefined): Record<string, xdr.ScVal> {
   const out: Record<string, xdr.ScVal> = {};
   try {
-    if (!sv || svType(sv) !== xdr.ScValType.scvMap().value) return out;
+    if (!sv || sv.switch().value !== xdr.ScValType.scvMap().value) return out;
     for (const entry of sv.map() ?? []) {
       let key = '';
       try {
         const k = entry.key();
-        const kt = svType(k);
-        if (kt === xdr.ScValType.scvSymbol().value) key = k.sym().toString();
-        else if (kt === xdr.ScValType.scvString().value) key = k.str().toString();
+        if (k.switch().value === xdr.ScValType.scvSymbol().value) key = k.sym().toString();
+        else if (k.switch().value === xdr.ScValType.scvString().value) key = k.str().toString();
       } catch { continue; }
       if (key) out[key] = entry.val();
     }
@@ -125,25 +120,29 @@ function svMap(sv: xdr.ScVal | undefined): Record<string, xdr.ScVal> {
   return out;
 }
 
-// Parse a Soroban enum variant name.
-// Unit variants → ScvVec([ScvSymbol("Name")]) or ScvSymbol("Name")
-// Struct variants → ScvMap({Name: payload})
-function svEnumVariant(sv: xdr.ScVal | undefined): string {
+// Extract the variant name from a Soroban enum ScVal.
+// Soroban encodes unit enums as ScvVec([ScvSymbol("Variant")]).
+// They are NOT encoded as the raw discriminant integer —
+// that only appears in the XDR union switch for XDR types, not contract types.
+function svEnum(sv: xdr.ScVal | undefined): string {
   try {
     if (!sv) return '';
-    const t = svType(sv);
+    const t = sv.switch().value;
+    // Unit variant: Vec([Symbol("Name")])
     if (t === xdr.ScValType.scvVec().value) {
       const vec = sv.vec() ?? [];
-      if (vec.length > 0 && svType(vec[0]) === xdr.ScValType.scvSymbol().value) {
+      if (vec.length > 0 && vec[0].switch().value === xdr.ScValType.scvSymbol().value) {
         return vec[0].sym().toString();
       }
     }
+    // Sometimes encoded as a bare symbol
     if (t === xdr.ScValType.scvSymbol().value) return sv.sym().toString();
+    // Tuple/struct variant: Map({Name: payload})
     if (t === xdr.ScValType.scvMap().value) {
       const entries = sv.map() ?? [];
       if (entries.length > 0) {
         const k = entries[0].key();
-        if (svType(k) === xdr.ScValType.scvSymbol().value) return k.sym().toString();
+        if (k.switch().value === xdr.ScValType.scvSymbol().value) return k.sym().toString();
       }
     }
     return '';
@@ -155,12 +154,11 @@ function svEnumVariant(sv: xdr.ScVal | undefined): string {
 function parseGameState(retval: xdr.ScVal): GameState {
   const f = svMap(retval);
 
-  // Phase — default to WaitingForPlayers if unrecognized
   let phase: GameState['phase'] = 'WaitingForPlayers';
-  const variant = svEnumVariant(f['phase']);
-  if (variant === 'Commit') phase = 'Commit';
-  else if (variant === 'Playing') phase = 'Playing';
-  else if (variant === 'Finished') phase = 'Finished';
+  const v = svEnum(f['phase']);
+  if (v === 'Commit') phase = 'Commit';
+  else if (v === 'Playing') phase = 'Playing';
+  else if (v === 'Finished') phase = 'Finished';
 
   return {
     player1:         svAddress(f['player1']),
@@ -186,38 +184,40 @@ function parseGameState(retval: xdr.ScVal): GameState {
   };
 }
 
-// ─── fetchGameState ───────────────────────────────────────────────────────────
-// Returns null when:
-//   - No contract ID configured
-//   - Contract has no state yet (simulation error = "not initialized")
-//   - Any parsing error
-// The Lobby treats null as "contract is empty / ready for a new game".
+// ─── Simulate helper ──────────────────────────────────────────────────────────
+// Runs a read-only contract call and returns the raw retval ScVal.
+// Returns null on simulation error (contract not initialized, etc.)
 
-export async function fetchGameState(): Promise<GameState | null> {
-  if (!CONTRACT_ID) return null;
+async function simulate(method: string, args: xdr.ScVal[] = []): Promise<xdr.ScVal | null> {
   try {
     const server = await getServer();
     const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      await server.getAccount(SIM_ACCOUNT),
-      { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE },
-    )
-      .addOperation(contract.call('get_state'))
+    const account = await server.getAccount(SIM_ACCOUNT);
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call(method, ...args))
       .setTimeout(30)
       .build();
 
     const result = await server.simulateTransaction(tx);
-
-    // Simulation error = contract has no state yet → treat as empty
-    if ('error' in result) {
-      console.debug('fetchGameState: no state yet (contract uninitialized)');
-      return null;
-    }
-
+    if ('error' in result) return null;
     const sim = result as SorobanRpc.Api.SimulateTransactionSuccessResponse;
-    if (!sim.result?.retval) return null;
+    return sim.result?.retval ?? null;
+  } catch {
+    return null;
+  }
+}
 
-    return parseGameState(sim.result.retval);
+// ─── fetchGameState ───────────────────────────────────────────────────────────
+
+export async function fetchGameState(): Promise<GameState | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const retval = await simulate('get_state');
+    if (!retval) return null;           // no state yet — contract uninitialized
+    return parseGameState(retval);
   } catch (e) {
     console.debug('fetchGameState error (treating as empty):', e);
     return null;
@@ -229,29 +229,16 @@ export async function fetchGameState(): Promise<GameState | null> {
 export async function getPlayerStats(address: string): Promise<PlayerStats | null> {
   try {
     if (!CONTRACT_ID || !isValidStellarAddress(address)) return null;
-    const server = await getServer();
-    const contract = new Contract(CONTRACT_ID);
     const playerVal = new Address(address).toScVal();
-    const tx = new TransactionBuilder(
-      await server.getAccount(SIM_ACCOUNT),
-      { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE },
-    )
-      .addOperation(contract.call('get_player_stats', playerVal))
-      .setTimeout(30)
-      .build();
+    const retval = await simulate('get_player_stats', [playerVal]);
+    if (!retval) return null;
 
-    const result = await server.simulateTransaction(tx);
-    if ('error' in result) return null;
-    const sim = result as SorobanRpc.Api.SimulateTransactionSuccessResponse;
-    if (!sim.result?.retval) return null;
+    // Option<PlayerStats>: None → scvVoid
+    if (retval.switch().value === xdr.ScValType.scvVoid().value) return null;
 
-    const retval = sim.result.retval;
-
-    // Option<PlayerStats>: None → scvVoid, Some(x) → map or vec([map])
-    if (svType(retval) === xdr.ScValType.scvVoid().value) return null;
-
+    // Some(x) — unwrap vec wrapper if present
     let statsSv = retval;
-    if (svType(retval) === xdr.ScValType.scvVec().value) {
+    if (retval.switch().value === xdr.ScValType.scvVec().value) {
       const vec = retval.vec() ?? [];
       if (vec.length === 0) return null;
       statsSv = vec[0];
@@ -265,8 +252,7 @@ export async function getPlayerStats(address: string): Promise<PlayerStats | nul
       total_shots_received: svU32(f['total_shots_received']),
       total_hits:           svU32(f['total_hits']),
     };
-  } catch (e) {
-    console.debug('getPlayerStats error:', e);
+  } catch {
     return null;
   }
 }
@@ -351,31 +337,61 @@ export function parseError(err: unknown): string {
 
 // ─── Contract functions ───────────────────────────────────────────────────────
 
-export async function joinGame(playerAddress: string, signTx: SignTransaction): Promise<void> {
-  const state = await fetchGameState();
-  if (state && state.phase !== 'WaitingForPlayers') {
-    throw new Error(`Game already active (${state.phase}). Reset the contract first.`);
+export async function joinGame(
+  playerAddress: string,
+  signTx: SignTransaction,
+): Promise<void> {
+  // Pre-flight: check state but DON'T throw if fetchGameState fails —
+  // the contract may have state we can't parse yet, but join_game itself
+  // will succeed or give a clear error from the chain.
+  try {
+    const state = await fetchGameState();
+    if (state) {
+      if (state.phase !== 'WaitingForPlayers') {
+        throw new Error(`Game already active (${state.phase}). Reset the contract first.`);
+      }
+      if (state.p1_joined && state.player1 === playerAddress) {
+        throw new Error('You already joined as Player 1.');
+      }
+    }
+    // If state is null: contract may be empty OR we couldn't parse it.
+    // Either way, let the chain decide — join_game will panic with a clear message if needed.
+  } catch (e) {
+    // Only re-throw errors we explicitly created above
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('already active') || msg.includes('already joined')) throw e;
+    // For parsing errors, proceed to the chain call
+    console.debug('joinGame pre-flight failed (proceeding anyway):', e);
   }
-  if (state?.p1_joined && state.player1 === playerAddress) {
-    throw new Error('You already joined as Player 1.');
-  }
-  await invokeContract('join_game', [requireAddress(playerAddress, 'Player')], playerAddress, signTx);
+
+  await invokeContract(
+    'join_game',
+    [requireAddress(playerAddress, 'Player')],
+    playerAddress,
+    signTx,
+  );
 }
 
 export async function commitBoard(
-  playerAddress: string, boardHashHex: string, signTx: SignTransaction,
+  playerAddress: string,
+  boardHashHex: string,
+  signTx: SignTransaction,
 ): Promise<void> {
   const hashBytes = hexToBytes(boardHashHex);
   if (hashBytes.length !== 32) throw new Error(`Board hash must be 32 bytes, got ${hashBytes.length}`);
   await invokeContract(
     'commit_board',
     [requireAddress(playerAddress, 'Player'), xdr.ScVal.scvBytes(Buffer.from(hashBytes))],
-    playerAddress, signTx,
+    playerAddress,
+    signTx,
   );
 }
 
 export async function fireShot(
-  shooterAddress: string, x: number, y: number, signTx: SignTransaction,
+  shooterAddress: string,
+  x: number,
+  y: number,
+  signTx: SignTransaction,
 ): Promise<void> {
   await invokeContract(
     'fire_shot',
@@ -384,13 +400,18 @@ export async function fireShot(
       nativeToScVal(x, { type: 'u32' }),
       nativeToScVal(y, { type: 'u32' }),
     ],
-    shooterAddress, signTx,
+    shooterAddress,
+    signTx,
   );
 }
 
 export async function submitResponse(
-  defenderAddress: string, x: number, y: number,
-  isHit: boolean, proofBytes: Uint8Array, signTx: SignTransaction,
+  defenderAddress: string,
+  x: number,
+  y: number,
+  isHit: boolean,
+  proofBytes: Uint8Array,
+  signTx: SignTransaction,
 ): Promise<void> {
   await invokeContract(
     'submit_response',
@@ -401,12 +422,21 @@ export async function submitResponse(
       nativeToScVal(isHit, { type: 'bool' }),
       xdr.ScVal.scvBytes(Buffer.from(proofBytes)),
     ],
-    defenderAddress, signTx,
+    defenderAddress,
+    signTx,
   );
 }
 
-export async function resetGame(callerAddress: string, signTx: SignTransaction): Promise<void> {
-  await invokeContract('reset_game', [requireAddress(callerAddress, 'Caller')], callerAddress, signTx);
+export async function resetGame(
+  callerAddress: string,
+  signTx: SignTransaction,
+): Promise<void> {
+  await invokeContract(
+    'reset_game',
+    [requireAddress(callerAddress, 'Caller')],
+    callerAddress,
+    signTx,
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
