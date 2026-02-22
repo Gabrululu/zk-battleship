@@ -14,11 +14,25 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    
+    // Validate address before attempting to fetch
+    if (!address || address.length < 56 || !address.startsWith('G')) {
+      setError('Invalid wallet address');
+      setLoading(false);
+      return;
+    }
+
     try {
       const s = await getPlayerStats(address);
       setStats(s);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      // Clean up "invalid encoded string" errors
+      if (msg.includes('invalid encoded')) {
+        setError('Wallet address is malformed');
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

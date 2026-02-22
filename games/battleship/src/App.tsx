@@ -118,7 +118,10 @@ export default function App() {
 
   const handleJoin = useCallback(
     async (_role: 'player1' | 'player2') => {
-      if (!stellar.address) return;
+      if (!stellar.address || !stellar.signTransaction) {
+        setJoinError('Wallet not connected or signing not available');
+        return;
+      }
       setJoining(true);
       setJoinError(null);
       try {

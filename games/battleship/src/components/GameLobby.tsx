@@ -48,6 +48,12 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
           return;
         }
 
+        // If the state has invalid addresses, treat it as empty
+        if (!state.player1 || !state.player2 || !state.player1.startsWith('G') || !state.player2.startsWith('G')) {
+          setContractStatus('empty');
+          return;
+        }
+
         const myAddress = stellar.address;
 
         if (state.phase === 'WaitingForPlayers') {

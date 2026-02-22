@@ -64,6 +64,20 @@ async function getServer(): Promise<SorobanRpc.Server> {
   return _server;
 }
 
+// ─── Validation helpers ──────────────────────────────────────────────────────
+
+function validateStellarAddress(address: string | null | undefined, fieldName: string = 'Address'): void {
+  if (!address) {
+    throw new Error(`${fieldName} is required`);
+  }
+  if (typeof address !== 'string' || address.length < 56) {
+    throw new Error(`Invalid ${fieldName}: must be a Stellar address (56+ characters)`);
+  }
+  if (!address.startsWith('G')) {
+    throw new Error(`Invalid ${fieldName}: must start with 'G' (Stellar public key format)`);
+  }
+}
+
 // ─── Read state (no auth needed) ─────────────────────────────────────────────
 
 export async function fetchGameState(): Promise<GameState | null> {
@@ -97,21 +111,28 @@ function parseGameState(val: xdr.ScVal): GameState {
   else if ('Playing' in phaseRaw) phase = 'Playing';
   else if ('Finished' in phaseRaw) phase = 'Finished';
 
+  // Helper to sanitize addresses
+  const sanitizeAddress = (raw: unknown): string => {
+    const addr = addressToStr(raw);
+    // Return address only if it's valid (starts with G, 56+ chars), otherwise empty string
+    return (addr.startsWith('G') && addr.length >= 56) ? addr : '';
+  };
+
   return {
-    player1: addressToStr(native['player1']),
-    player2: addressToStr(native['player2']),
+    player1: sanitizeAddress(native['player1']),
+    player2: sanitizeAddress(native['player2']),
     board_hash_p1: bytesToHex(native['board_hash_p1'] as Uint8Array),
     board_hash_p2: bytesToHex(native['board_hash_p2'] as Uint8Array),
     hits_on_p1: Number(native['hits_on_p1']),
     hits_on_p2: Number(native['hits_on_p2']),
     shots_fired_p1: Number(native['shots_fired_p1'] ?? 0),
     shots_fired_p2: Number(native['shots_fired_p2'] ?? 0),
-    turn: addressToStr(native['turn']),
+    turn: sanitizeAddress(native['turn']),
     phase,
     pending_shot_x: Number(native['pending_shot_x']),
     pending_shot_y: Number(native['pending_shot_y']),
-    pending_shooter: addressToStr(native['pending_shooter']),
-    winner: addressToStr(native['winner']),
+    pending_shooter: sanitizeAddress(native['pending_shooter']),
+    winner: sanitizeAddress(native['winner']),
     has_winner: Boolean(native['has_winner']),
     p1_committed: Boolean(native['p1_committed']),
     p2_committed: Boolean(native['p2_committed']),
@@ -122,9 +143,30 @@ function parseGameState(val: xdr.ScVal): GameState {
 }
 
 function addressToStr(val: unknown): string {
-  if (typeof val === 'string') return val;
-  if (val instanceof Uint8Array) return uint8ToHex(val);
-  return String(val ?? '');
+  // If already a string, validate and return
+  if (typeof val === 'string') {
+    return val.startsWith('G') && val.length >= 56 ? val : '';
+  }
+  
+  // If it's a Uint8Array, decode it as an Address
+  if (val instanceof Uint8Array) {
+    // Addresses are 32 bytes of data that need to be Base32-encoded with a version byte
+    if (val.length === 32) {
+      try {
+        // Try to use the Address class to properly encode
+        const addr = new Address(val);
+        return addr.toString();
+      } catch {
+        // Fallback to hex
+        return uint8ToHex(val);
+      }
+    }
+    // If it's not 32 bytes, try hex
+    return uint8ToHex(val);
+  }
+
+  // For other types, return empty string
+  return '';
 }
 
 function uint8ToHex(bytes: Uint8Array): string {
@@ -219,6 +261,8 @@ export async function joinGame(
   playerAddress: string,
   signTx: SignTransaction,
 ): Promise<void> {
+  validateStellarAddress(playerAddress, 'Player address');
+
   // Pre-validate: check current game state before sending tx
   const state = await fetchGameState();
   if (state) {
@@ -241,6 +285,7 @@ export async function commitBoard(
   boardHashHex: string,
   signTx: SignTransaction,
 ): Promise<void> {
+  validateStellarAddress(playerAddress, 'Player address');
   const playerVal = new Address(playerAddress).toScVal();
 
   // Convert hex hash to BytesN<32> — must be exactly 32 bytes
@@ -259,6 +304,7 @@ export async function fireShot(
   y: number,
   signTx: SignTransaction,
 ): Promise<void> {
+  validateStellarAddress(shooterAddress, 'Shooter address');
   const shooterVal = new Address(shooterAddress).toScVal();
   const xVal = nativeToScVal(x, { type: 'u32' });
   const yVal = nativeToScVal(y, { type: 'u32' });
@@ -273,6 +319,7 @@ export async function submitResponse(
   proofBytes: Uint8Array,
   signTx: SignTransaction,
 ): Promise<void> {
+  validateStellarAddress(defenderAddress, 'Defender address');
   const defenderVal = new Address(defenderAddress).toScVal();
   const xVal = nativeToScVal(x, { type: 'u32' });
   const yVal = nativeToScVal(y, { type: 'u32' });
@@ -291,6 +338,7 @@ export async function resetGame(
   callerAddress: string,
   signTx: SignTransaction,
 ): Promise<void> {
+  validateStellarAddress(callerAddress, 'Caller address');
   const callerVal = new Address(callerAddress).toScVal();
   await invokeContract('reset_game', [callerVal], callerAddress, signTx);
 }
@@ -299,6 +347,7 @@ export async function resetGame(
 
 export async function getPlayerStats(address: string): Promise<PlayerStats | null> {
   if (!CONTRACT_ID) return null;
+  validateStellarAddress(address, 'Player address');
   const server = await getServer();
   const contract = new Contract(CONTRACT_ID);
   const playerVal = new Address(address).toScVal();
