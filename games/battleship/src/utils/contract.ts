@@ -10,7 +10,7 @@ import {
   Address,
   nativeToScVal,
   scValToNative,
-  strKey,
+  StrKey,
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
@@ -156,7 +156,7 @@ function addressToStr(val: unknown): string {
       try {
         // Convert Uint8Array to Buffer, then encode as Stellar address
         const buff = Buffer.from(val);
-        return strKey.encodeEd25519PublicKey(buff);
+        return StrKey.encodeEd25519PublicKey(buff);
       } catch {
         // Fallback to hex
         return uint8ToHex(val);
