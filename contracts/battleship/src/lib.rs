@@ -20,7 +20,7 @@ pub enum DataKey {
     PlayerHistory(Address),
 }
 
-// ─── Player stats & history types ─────────────────────────────────────────────
+// ─── Player stats & history ───────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -57,7 +57,6 @@ pub enum GamePhase {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct GameState {
-    pub player1: Address,
     pub board_hash_p1: BytesN<32>,
     pub board_hash_p2: BytesN<32>,
     pub has_winner: bool,
@@ -71,6 +70,7 @@ pub struct GameState {
     pub pending_shot_x: u32,
     pub pending_shot_y: u32,
     pub phase: GamePhase,
+    pub player1: Address,
     pub player2: Address,
     pub session_id: u32,
     pub shots_fired_p1: u32,
@@ -122,10 +122,7 @@ impl BattleshipContract {
                 session_id: env.ledger().sequence(),
             });
 
-        assert!(
-            state.phase == GamePhase::WaitingForPlayers,
-            "Game already started"
-        );
+        assert!(state.phase == GamePhase::WaitingForPlayers, "Game already started");
 
         if !state.p1_joined {
             state.player1 = player.clone();
@@ -135,7 +132,8 @@ impl BattleshipContract {
             state.player2 = player.clone();
             state.p2_joined = true;
             state.phase = GamePhase::Commit;
-            Self::call_hub_start(&env);
+            // start_game(game_id, session_id, player1, player2, player1_points, player2_points)
+            Self::call_hub_start(&env, state.session_id, &state.player1, &state.player2);
         }
 
         env.storage().instance().set(&DataKey::GameState, &state);
@@ -262,7 +260,9 @@ impl BattleshipContract {
                 state.has_winner = true;
                 state.phase = GamePhase::Finished;
                 Self::record_result(&env, &state);
-                Self::call_hub_end(&env);
+                // end_game(session_id, player1_won)
+                let player1_won = state.winner == state.player1;
+                Self::call_hub_end(&env, state.session_id, player1_won);
                 env.storage().instance().set(&DataKey::GameState, &state);
                 return;
             }
@@ -273,9 +273,9 @@ impl BattleshipContract {
     }
 
     // ── get_state ──────────────────────────────────────────────────────────────
-    // Returns GameState directly (panics / simulation error if not initialized).
-    // The frontend catches simulation errors and treats them as "no game yet".
-    // Do NOT change this to Option<GameState> — that causes "Bad union switch" in the SDK.
+    // Returns GameState directly — panics (simulation error) if not initialized.
+    // Frontend catches simulation errors and treats them as "no game yet".
+    // Do NOT change to Option<GameState> — causes "Bad union switch" in the SDK.
     pub fn get_state(env: Env) -> GameState {
         Self::load_state(&env)
     }
@@ -301,7 +301,7 @@ impl BattleshipContract {
         env.storage()
             .instance()
             .get::<DataKey, GameState>(&DataKey::GameState)
-            .expect("Game not initialized — call join_game first")
+            .expect("Game not initialized")
     }
 
     fn other_player(state: &GameState, player: &Address) -> Address {
@@ -327,16 +327,40 @@ impl BattleshipContract {
         );
     }
 
-    // Hub mock — call with no arguments (the hackathon mock hub ignores args)
-    fn call_hub_start(env: &Env) {
+    // ── Hub calls ─────────────────────────────────────────────────────────────
+    //
+    // Exact hub interface (SDK 25.0.2):
+    //   start_game(game_id: Address, session_id: u32, player1: Address,
+    //              player2: Address, player1_points: i128, player2_points: i128)
+    //   end_game(session_id: u32, player1_won: bool)
+
+    fn call_hub_start(
+        env: &Env,
+        session_id: u32,
+        player1: &Address,
+        player2: &Address,
+    ) {
         let hub: Address = Address::from_str(env, HUB_CONTRACT);
-        let args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(env);
+        let game_id = env.current_contract_address();
+        let args = soroban_sdk::vec![
+            env,
+            game_id.into_val(env),
+            session_id.into_val(env),
+            player1.into_val(env),
+            player2.into_val(env),
+            0i128.into_val(env),   // player1_points (ignored by mock)
+            0i128.into_val(env),   // player2_points (ignored by mock)
+        ];
         env.invoke_contract::<()>(&hub, &Symbol::new(env, "start_game"), args);
     }
 
-    fn call_hub_end(env: &Env) {
+    fn call_hub_end(env: &Env, session_id: u32, player1_won: bool) {
         let hub: Address = Address::from_str(env, HUB_CONTRACT);
-        let args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(env);
+        let args = soroban_sdk::vec![
+            env,
+            session_id.into_val(env),
+            player1_won.into_val(env),
+        ];
         env.invoke_contract::<()>(&hub, &Symbol::new(env, "end_game"), args);
     }
 
@@ -434,7 +458,6 @@ mod tests {
     }
 
     fn dummy_proof(env: &Env) -> Bytes {
-        // >= 32 bytes to pass verify_zk_proof stub
         Bytes::from_slice(env, &[0xde; 64])
     }
 
@@ -504,12 +527,10 @@ mod tests {
 
     #[test]
     fn test_reset_game() {
-        let (_env, p1, _p2, client) = setup();
+        let (env, p1, _p2, client) = setup();
         client.join_game(&p1);
-        // After reset, get_state should panic (no state in storage)
         client.reset_game(&p1);
-        // Verify reset worked by checking we can join again
-        let p1_new = Address::generate(&_env);
+        let p1_new = Address::generate(&env);
         client.join_game(&p1_new);
         let state = client.get_state();
         assert!(state.p1_joined);
