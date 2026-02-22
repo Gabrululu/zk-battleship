@@ -48,8 +48,8 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
           return;
         }
 
-        // If the state has invalid addresses, treat it as empty
-        if (!state.player1 || !state.player2 || !state.player1.startsWith('G') || !state.player2.startsWith('G')) {
+        // If the state has empty addresses, treat it as empty
+        if (!state.player1 || !state.player2) {
           setContractStatus('empty');
           return;
         }

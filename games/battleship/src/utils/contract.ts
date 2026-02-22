@@ -71,11 +71,14 @@ function validateStellarAddress(address: string | null | undefined, fieldName: s
   if (!address) {
     throw new Error(`${fieldName} is required`);
   }
-  if (typeof address !== 'string' || address.length < 56) {
-    throw new Error(`Invalid ${fieldName}: must be a Stellar address (56+ characters)`);
+  if (typeof address !== 'string') {
+    throw new Error(`${fieldName} must be a string`);
   }
-  if (!address.startsWith('G')) {
-    throw new Error(`Invalid ${fieldName}: must start with 'G' (Stellar public key format)`);
+  // Try to construct an Address to validate it
+  try {
+    new Address(address);
+  } catch (err) {
+    throw new Error(`${fieldName} is invalid: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -112,28 +115,28 @@ function parseGameState(val: xdr.ScVal): GameState {
   else if ('Playing' in phaseRaw) phase = 'Playing';
   else if ('Finished' in phaseRaw) phase = 'Finished';
 
-  // Helper to sanitize addresses
-  const sanitizeAddress = (raw: unknown): string => {
+  // Helper to safely get addresses from contract response
+  const getAddress = (raw: unknown): string => {
     const addr = addressToStr(raw);
-    // Return address only if it's valid (starts with G, 56+ chars), otherwise empty string
-    return (addr.startsWith('G') && addr.length >= 56) ? addr : '';
+    // Return address as-is, validation happens when used
+    return addr;
   };
 
   return {
-    player1: sanitizeAddress(native['player1']),
-    player2: sanitizeAddress(native['player2']),
+    player1: getAddress(native['player1']),
+    player2: getAddress(native['player2']),
     board_hash_p1: bytesToHex(native['board_hash_p1'] as Uint8Array),
     board_hash_p2: bytesToHex(native['board_hash_p2'] as Uint8Array),
     hits_on_p1: Number(native['hits_on_p1']),
     hits_on_p2: Number(native['hits_on_p2']),
     shots_fired_p1: Number(native['shots_fired_p1'] ?? 0),
     shots_fired_p2: Number(native['shots_fired_p2'] ?? 0),
-    turn: sanitizeAddress(native['turn']),
+    turn: getAddress(native['turn']),
     phase,
     pending_shot_x: Number(native['pending_shot_x']),
     pending_shot_y: Number(native['pending_shot_y']),
-    pending_shooter: sanitizeAddress(native['pending_shooter']),
-    winner: sanitizeAddress(native['winner']),
+    pending_shooter: getAddress(native['pending_shooter']),
+    winner: getAddress(native['winner']),
     has_winner: Boolean(native['has_winner']),
     p1_committed: Boolean(native['p1_committed']),
     p2_committed: Boolean(native['p2_committed']),

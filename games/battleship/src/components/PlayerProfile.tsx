@@ -15,8 +15,8 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
     setLoading(true);
     setError(null);
     
-    // Validate address before attempting to fetch
-    if (!address || address.length < 56 || !address.startsWith('G')) {
+    // Basic address check - allow Address class to validate
+    if (!address || address.length === 0) {
       setError('Invalid wallet address');
       setLoading(false);
       return;
@@ -27,12 +27,7 @@ export function PlayerProfile({ address, onClose }: PlayerProfileProps) {
       setStats(s);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Clean up "invalid encoded string" errors
-      if (msg.includes('invalid encoded')) {
-        setError('Wallet address is malformed');
-      } else {
-        setError(msg);
-      }
+      setError(msg);
     } finally {
       setLoading(false);
     }

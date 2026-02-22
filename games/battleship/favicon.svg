@@ -1,0 +1,45 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background with gradient -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1419;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a2332;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="shipGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0099cc;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="100" height="100" fill="url(#bgGrad)"/>
+  
+  <!-- Water waves -->
+  <path d="M 0 65 Q 12 60 25 65 T 50 65 T 75 65 T 100 65 L 100 100 L 0 100 Z" fill="#1a4d66" opacity="0.6"/>
+  <path d="M 0 75 Q 15 72 30 75 T 60 75 T 90 75 T 100 75 L 100 100 L 0 100 Z" fill="#0d3347" opacity="0.4"/>
+  
+  <!-- Ship hull -->
+  <path d="M 30 50 L 25 65 L 75 65 L 70 50 Z" fill="url(#shipGrad)" stroke="#00ffff" stroke-width="1.5" stroke-linejoin="round"/>
+  
+  <!-- Ship tower/superstructure -->
+  <rect x="42" y="35" width="16" height="18" fill="url(#shipGrad)" stroke="#00ffff" stroke-width="1" rx="2"/>
+  
+  <!-- Ship antenna/mast -->
+  <line x1="50" y1="35" x2="50" y2="20" stroke="#00ffff" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="50" cy="18" r="2" fill="#00ffff"/>
+  
+  <!-- Radar dish -->
+  <circle cx="50" cy="22" r="4" fill="none" stroke="#00ffff" stroke-width="1.2"/>
+  <circle cx="50" cy="22" r="2.5" fill="none" stroke="#00ffff" stroke-width="0.8"/>
+  
+  <!-- Sonar concentric circles (ZK symbolism) -->
+  <circle cx="50" cy="50" r="8" fill="none" stroke="#00d4ff" stroke-width="0.8" opacity="0.6"/>
+  <circle cx="50" cy="50" r="12" fill="none" stroke="#00d4ff" stroke-width="0.6" opacity="0.4"/>
+  
+  <!-- Target crosshair (battleship strategy) -->
+  <line x1="45" y1="50" x2="55" y2="50" stroke="#ff3355" stroke-width="1.2" opacity="0.7" stroke-linecap="round"/>
+  <line x1="50" y1="45" x2="50" y2="55" stroke="#ff3355" stroke-width="1.2" opacity="0.7" stroke-linecap="round"/>
+  
+  <!-- Glowing effect -->
+  <circle cx="50" cy="50" r="22" fill="none" stroke="#00d4ff" stroke-width="0.5" opacity="0.2" stroke-dasharray="2,3"/>
+</svg>
