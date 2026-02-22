@@ -154,6 +154,30 @@ impl BattleshipContract {
         env.storage().instance().set(&DataKey::GameState, &state);
     }
 
+    // ── reset_game ──────────────────────────────────────────────────────────────
+    /// Reset the game state. Only player1 or player2 can reset their own game.
+    /// If no game state exists yet, anyone can initialize it.
+    /// This allows cleaning up incomplete games without redeploying.
+    pub fn reset_game(env: Env, caller: Address) {
+        caller.require_auth();
+
+        let state_opt = env.storage()
+            .instance()
+            .get::<DataKey, GameState>(&DataKey::GameState);
+
+        if let Some(state) = state_opt {
+            // Only the players who are part of this game can reset it
+            assert!(
+                caller == state.player1 || caller == state.player2,
+                "Only players in this game can reset it"
+            );
+        }
+        // If no state exists, anyone can initialize
+
+        // Clear the game state
+        env.storage().instance().remove(&DataKey::GameState);
+    }
+
     // ── commit_board ───────────────────────────────────────────────────────────
     /// A player commits their board hash (Poseidon2 hash of board + salt).
     /// When both players have committed, the phase advances to Playing.
@@ -581,5 +605,35 @@ mod tests {
         assert!(state.has_winner);
         assert_eq!(state.winner, p1);
         assert_eq!(state.hits_on_p2, 3);
+    }
+
+    #[test]
+    fn test_reset_game() {
+        let (env, p1, p2, client) = setup();
+
+        // Player 1 joins
+        client.join_game(&p1);
+        let state = client.get_state();
+        assert_eq!(state.phase, GamePhase::WaitingForPlayers);
+
+        // Player 1 can reset their own game
+        client.reset_game(&p1);
+        let state_after = client.get_state();
+        assert!(state_after.is_none());
+    }
+
+    #[test]
+    fn test_reset_game_authorization() {
+        let (env, p1, p2, client) = setup();
+
+        // Player 1 joins
+        client.join_game(&p1);
+
+        // Player 3 (not in game) tries to reset — should fail
+        let p3 = Address::generate(&env);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.reset_game(&p3);
+        }));
+        assert!(result.is_err());
     }
 }

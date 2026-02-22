@@ -287,6 +287,14 @@ export async function submitResponse(
   );
 }
 
+export async function resetGame(
+  callerAddress: string,
+  signTx: SignTransaction,
+): Promise<void> {
+  const callerVal = new Address(callerAddress).toScVal();
+  await invokeContract('reset_game', [callerVal], callerAddress, signTx);
+}
+
 // ─── Player stats ───────────────────────────────────────────────────────────────
 
 export async function getPlayerStats(address: string): Promise<PlayerStats | null> {

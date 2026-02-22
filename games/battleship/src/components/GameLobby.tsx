@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CONTRACT_ID, parseError } from '../utils/contract';
+import { CONTRACT_ID, parseError, fetchGameState, GameState, resetGame } from '../utils/contract';
 import type { UseWallet } from '../hooks/useWallet';
 import { playPing } from '../utils/sounds';
 
@@ -12,6 +12,8 @@ interface GameLobbyProps {
   onRefresh?: () => void;
 }
 
+type ContractStatus = 'empty' | 'my-game' | 'occupied' | 'loading';
+
 export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractId, onRefresh }: GameLobbyProps) {
   const [view, setView] = useState<'menu' | 'create' | 'join'>(
     inviteContractId ? 'join' : 'menu',
@@ -20,11 +22,51 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
   const [copied, setCopied] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  
+  // Contract state detection
+  const [contractStatus, setContractStatus] = useState<ContractStatus>('loading');
+  const [existingState, setExistingState] = useState<GameState | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   // If arriving via invite link, switch to join view once wallet connects
   useEffect(() => {
     if (inviteContractId && stellar.connected && view === 'menu') setView('join');
   }, [inviteContractId, stellar.connected, view]);
+
+  // Check contract state on mount and wallet connection
+  useEffect(() => {
+    const checkContract = async () => {
+      if (!stellar.connected) {
+        setContractStatus('empty');
+        return;
+      }
+
+      try {
+        const state = await fetchGameState();
+        if (!state) {
+          setContractStatus('empty');
+          return;
+        }
+
+        const myAddress = stellar.address;
+
+        if (state.phase === 'WaitingForPlayers') {
+          setContractStatus('empty');
+        } else if (myAddress === state.player1 || myAddress === state.player2) {
+          setContractStatus('my-game');
+          setExistingState(state);
+        } else {
+          setContractStatus('occupied');
+          setExistingState(state);
+        }
+      } catch (err) {
+        console.error('Failed to check contract state:', err);
+        setContractStatus('empty');
+      }
+    };
+
+    checkContract();
+  }, [stellar.connected, stellar.address]);
 
   // Poll for P2 joining while P1 is waiting
   useEffect(() => {
@@ -47,10 +89,103 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
     }
   };
 
+  const handleReset = async () => {
+    if (!stellar.address || !stellar.signTransaction) return;
+    setResetting(true);
+    try {
+      await resetGame(stellar.address, stellar.signTransaction);
+      playPing();
+      setContractStatus('empty');
+      setExistingState(null);
+      onRefresh?.();
+    } catch (err) {
+      setLocalError(parseError(err));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const copyInviteLink = async () => {
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Render appropriate UI based on contract status
+  const renderContractStatus = () => {
+    if (contractStatus === 'my-game' && existingState) {
+      const phaseLabel = existingState.phase === 'Commit' ? 'COMMIT PHASE' : 
+                        existingState.phase === 'Playing' ? 'IN PROGRESS' : 
+                        existingState.phase === 'Finished' ? 'COMPLETED' : 'WAITING';
+      return (
+        <div className="panel" style={{
+          borderColor: 'rgba(100,200,255,0.3)',
+          background: 'rgba(100,200,255,0.05)',
+          padding: '1.5rem',
+          maxWidth: '500px',
+          width: '100%',
+          margin: '0 auto 1.5rem'
+        }}>
+          <div className="label" style={{color: 'var(--sonar)', marginBottom: '0.5rem'}}>
+            ✓ YOU HAVE A GAME IN PROGRESS
+          </div>
+          <p style={{
+            fontFamily: 'Share Tech Mono, monospace',
+            fontSize: '0.7rem',
+            color: 'var(--text-muted)',
+            lineHeight: 1.6,
+            marginBottom: '1rem'
+          }}>
+            Phase: <strong>{phaseLabel}</strong>
+            <br/>Your opponent: <strong>{existingState.phase === 'Finished' && existingState.has_winner ? (existingState.winner === stellar.address ? 'YOU WON' : 'GAME OVER') : 'Connected'}</strong>
+          </p>
+          <button 
+            className="btn btn-sonar"
+            onClick={() => onRefresh?.()}
+            style={{ width: '100%' }}
+          >
+            RESUME GAME
+          </button>
+        </div>
+      );
+    }
+
+    if (contractStatus === 'occupied' && existingState && stellar.address && (existingState.player1 === stellar.address || existingState.player2 === stellar.address)) {
+      return (
+        <div className="panel" style={{
+          borderColor: 'rgba(255,51,85,0.3)',
+          background: 'rgba(255,51,85,0.05)',
+          padding: '1.5rem',
+          maxWidth: '500px',
+          width: '100%',
+          margin: '0 auto 1.5rem'
+        }}>
+          <div className="label" style={{color: 'var(--danger-glow)', marginBottom: '0.5rem'}}>
+            ⚠ CONTRACT OCCUPIED
+          </div>
+          <p style={{
+            fontFamily: 'Share Tech Mono, monospace',
+            fontSize: '0.7rem',
+            color: 'var(--text-muted)',
+            lineHeight: 1.6,
+            marginBottom: '1rem'
+          }}>
+            This contract has a game in progress. If you started this game, you can reset it.
+          </p>
+          <button 
+            className="btn btn-danger"
+            onClick={handleReset}
+            disabled={resetting}
+            style={{ width: '100%' }}
+          >
+            {resetting ? 'RESETTING...' : 'RESET CONTRACT'}
+          </button>
+          {localError && <div className="error-msg" style={{marginTop: '0.75rem'}}>{localError}</div>}
+        </div>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -66,7 +201,11 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
         <div className="lobby-tagline">COMMIT · PROVE · CONQUER · NO TRUST REQUIRED</div>
       </div>
 
+      {/* Contract status alerts */}
+      {renderContractStatus()}
+
       {/* Two-column action panel */}
+      {contractStatus !== 'my-game' && (
       <div className="panel lobby-panel" style={{ width: '100%' }}>
         <div className="panel-corner-br" />
 
@@ -170,6 +309,7 @@ export function GameLobby({ stellar, onJoin, joining, joinError, inviteContractI
           )}
         </div>
       </div>
+      )}
 
       {/* Status tags */}
       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'center' }}>
