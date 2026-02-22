@@ -34,6 +34,8 @@ export interface GameState {
   board_hash_p2: string;
   hits_on_p1: number;
   hits_on_p2: number;
+  shots_fired_p1: number;
+  shots_fired_p2: number;
   turn: string;
   phase: 'WaitingForPlayers' | 'Commit' | 'Playing' | 'Finished';
   pending_shot_x: number;
@@ -102,6 +104,8 @@ function parseGameState(val: xdr.ScVal): GameState {
     board_hash_p2: bytesToHex(native['board_hash_p2'] as Uint8Array),
     hits_on_p1: Number(native['hits_on_p1']),
     hits_on_p2: Number(native['hits_on_p2']),
+    shots_fired_p1: Number(native['shots_fired_p1'] ?? 0),
+    shots_fired_p2: Number(native['shots_fired_p2'] ?? 0),
     turn: addressToStr(native['turn']),
     phase,
     pending_shot_x: Number(native['pending_shot_x']),
@@ -156,7 +160,13 @@ async function invokeContract(
 
   const simResult = await server.simulateTransaction(tx);
   if ('error' in simResult) {
-    throw new Error(`Simulation failed: ${(simResult as { error: string }).error}`);
+    const raw = (simResult as { error: string }).error ?? '';
+    // Extract human-readable contract panic from XDR error string
+    const match = raw.match(/HostError: Error\{ code:ContractError\(\d+\)[^}]*}[\s\S]*?value:String\("([^"]+)"\)/);
+    if (match) throw new Error(match[1]);
+    // Fallback: strip XDR noise and show something useful
+    const clean = raw.replace(/\s+/g, ' ').slice(0, 200);
+    throw new Error(clean || 'Contract simulation failed');
   }
 
   const { rpc: SRpc } = await import('@stellar/stellar-sdk');
@@ -209,6 +219,19 @@ export async function joinGame(
   playerAddress: string,
   signTx: SignTransaction,
 ): Promise<void> {
+  // Pre-validate: check current game state before sending tx
+  const state = await fetchGameState();
+  if (state) {
+    if (state.phase !== 'WaitingForPlayers') {
+      throw new Error(`Game already in progress (phase: ${state.phase}). Start a new game or wait for this one to finish.`);
+    }
+    if (state.p1_joined && state.p2_joined) {
+      throw new Error('Game is full — both players already joined.');
+    }
+    if (state.p1_joined && state.player1 === playerAddress) {
+      throw new Error('You already joined this game as Player 1.');
+    }
+  }
   const playerVal = new Address(playerAddress).toScVal();
   await invokeContract('join_game', [playerVal], playerAddress, signTx);
 }
