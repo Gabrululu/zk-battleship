@@ -1,4 +1,4 @@
-// contract.ts — ZK Battleship (Optimizado para Debugging)
+// contract.ts — ZK Battleship
 import {
   Contract,
   Networks,
@@ -70,7 +70,7 @@ interface RawSimResult {
   minResourceFee?: string;
   transactionData?: string;
   latestLedger?: string;
-  events?: string[]; // Para capturar logs de diagnóstico
+  events?: string[];
 }
 
 async function rawSimulate(txXdr: string): Promise<RawSimResult> {
@@ -84,16 +84,25 @@ async function rawSimulate(txXdr: string): Promise<RawSimResult> {
       params: { transaction: txXdr },
     }),
   });
+
   const json = await res.json() as { result?: RawSimResult; error?: { message: string } };
   
-  if (json.error) throw new Error(`RPC Protocol Error: ${json.error.message}`);
+  if (json.error) throw new Error(`RPC Error: ${json.error.message}`);
   
   const result = json.result ?? {};
   
-  // Debug detallado en consola si hay error de VM
-  if (result.error?.includes("UnreachableCodeReached")) {
-    console.error("🚨 VM Trap detected. Possible causes: ZK Proof mismatch, Turn violation, or Index out of bounds.");
-    if (result.events) console.debug("Diagnostic Events (XDR):", result.events);
+  // PARCHE CRÍTICO: Si hay error, lanzamos el mensaje crudo ANTES de que el SDK 
+  // intente parsear los eventos de diagnóstico (evita Bad union switch: 4)
+  if (result.error) {
+    const rawError = result.error;
+    console.error("❌ Error de Simulación:", rawError);
+    
+    // Intenta extraer el mensaje del pánico del contrato
+    const match = rawError.match(/value:String\("([^"]+)"\)/) ?? 
+                  rawError.match(/details=Some\("([^"]+)"\)/) ??
+                  rawError.match(/Error\(Contract, #(\d+)\)/);
+    
+    throw new Error(match ? `Contrato: ${match[1]}` : `Fallo en VM: ${rawError.slice(0, 200)}`);
   }
 
   return result;
@@ -222,7 +231,7 @@ export async function fetchGameState(): Promise<GameState | null> {
   try {
     const tx = await buildTx('get_state', [], SIM_ACCOUNT);
     const sim = await rawSimulate(tx.toXDR());
-    if (sim.error || !sim.results?.[0]?.xdr) return null;
+    if (!sim.results?.[0]?.xdr) return null;
     return parseGameState(sim.results[0].xdr);
   } catch (e) {
     console.debug('fetchGameState error:', e);
@@ -236,7 +245,7 @@ export async function getPlayerStats(address: string): Promise<PlayerStats | nul
     const playerVal = new Address(address).toScVal();
     const tx = await buildTx('get_player_stats', [playerVal], SIM_ACCOUNT);
     const sim = await rawSimulate(tx.toXDR());
-    if (sim.error || !sim.results?.[0]?.xdr) return null;
+    if (!sim.results?.[0]?.xdr) return null;
 
     const retval = xdr.ScVal.fromXDR(sim.results[0].xdr, 'base64');
     if (retval.switch().value === xdr.ScValType.scvVoid().value) return null;
@@ -264,12 +273,6 @@ async function invokeContract(
   const tx = await buildTx(method, args, sourceAddress);
   const sim = await rawSimulate(tx.toXDR());
 
-  if (sim.error) {
-    const raw = sim.error;
-    const match = raw.match(/value:String\("([^"]+)"\)/) ?? raw.match(/details=Some\("([^"]+)"\)/);
-    throw new Error(match?.[1] ?? `Simulación falló: ${raw.slice(0, 150)}`);
-  }
-
   const simSuccess = {
     results: sim.results,
     minResourceFee: sim.minResourceFee,
@@ -282,7 +285,7 @@ async function invokeContract(
   const sendResult = await server.sendTransaction(new Transaction(signedXdr, NETWORK_PASSPHRASE));
 
   if (sendResult.status === 'ERROR') {
-    throw new Error(`Error de envío: ${JSON.stringify(sendResult.errorResult)}`);
+    throw new Error(`Error de envío: ${JSON.stringify(sendResult.errorResultXdr)}`);
   }
 
   // Polling
@@ -313,10 +316,6 @@ function hexToBytes(hex: string): Uint8Array {
   for (let i = 0; i < 32; i++)
     bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   return bytes;
-}
-
-export function parseError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // ─── Main Contract Actions ────────────────────────────────────────────────────
