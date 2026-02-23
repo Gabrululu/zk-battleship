@@ -3,5 +3,8 @@ resolver = "2"
 members = ["battleship"]
 
 [profile.release]
-opt-level = "z"     # Optimiza por tamaño (importante para contratos)
+opt-level = "z"     # Optimizar por tamaño
 overflow-checks = true
+lto = true
+panic = "abort"
+codegen-units = 1
