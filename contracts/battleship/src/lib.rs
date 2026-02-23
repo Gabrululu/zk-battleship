@@ -268,10 +268,26 @@ impl BattleshipContract {
         let _ = env.try_invoke_contract::<(), soroban_sdk::Error>(&hub, &Symbol::new(env, "end_game"), args);
     }
 
-    fn record_result(env: &Env, state: &GameState) {
-        let (winner, loser) = if state.winner == state.player1 { (&state.player1, &state.player2) } else { (&state.player2, &state.player1) };
-        let mut ws = env.storage().persistent().get::<DataKey, PlayerStats>(&DataKey::PlayerStats(winner.clone())).unwrap_or(PlayerStats { games_played: 0, games_won: 0, total_shots_fired: 0, total_shots_received: 0, total_hits: 0 });
-        ws.games_played += 1; ws.games_won += 1;
+    fn record_result(env: &Env, state: &GameState) {        
+        let (winner, _loser) = if state.winner == state.player1 { 
+            (&state.player1, &state.player2) 
+        } else { 
+            (&state.player2, &state.player1) 
+        };
+
+        let mut ws = env.storage().persistent()
+            .get::<DataKey, PlayerStats>(&DataKey::PlayerStats(winner.clone()))
+            .unwrap_or(PlayerStats { 
+                games_played: 0, 
+                games_won: 0, 
+                total_shots_fired: 0, 
+                total_shots_received: 0, 
+                total_hits: 0 
+            });
+
+        ws.games_played += 1; 
+        ws.games_won += 1;
+        
         env.storage().persistent().set(&DataKey::PlayerStats(winner.clone()), &ws);
     }
 }
