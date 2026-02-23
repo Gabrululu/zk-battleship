@@ -285,7 +285,7 @@ async function invokeContract(
   const sendResult = await server.sendTransaction(new Transaction(signedXdr, NETWORK_PASSPHRASE));
 
   if (sendResult.status === 'ERROR') {
-    throw new Error(`Error de envío: ${JSON.stringify(sendResult.errorResultXdr)}`);
+    throw new Error(`Error de envío: ${JSON.stringify(sendResult.errorResult)}`);
   }
 
   // Polling
