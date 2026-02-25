@@ -20,8 +20,21 @@ export function isMuted(): boolean {
   return muted;
 }
 
+async function getCtxAsync(): Promise<{ ctx: AudioContext; master: GainNode } | null> {
+  if (!audioCtx || !masterGain) return null;
+  // Resume suspended context (required after browser autoplay policy)
+  if (audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch { return null; }
+  }
+  return { ctx: audioCtx, master: masterGain };
+}
+
 function getCtx(): { ctx: AudioContext; master: GainNode } | null {
   if (!audioCtx || !masterGain) return null;
+  // Fire-and-forget resume for sync callers
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
   return { ctx: audioCtx, master: masterGain };
 }
 

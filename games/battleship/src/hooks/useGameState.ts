@@ -38,6 +38,6 @@ export function useGameState() {
     startPolling();
     return stopPolling;
   }, [startPolling, stopPolling]);
-
-  return { gameState, loading, error, refresh };
+  
+  return { gameState, setGameState, loading, error, refresh };
 }

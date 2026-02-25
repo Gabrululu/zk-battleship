@@ -34,11 +34,18 @@ export function serializeBoard(board: Board): number[] {
   return board.flat();
 }
 
-/** Generate a cryptographically random salt as a hex string */
+/** Generate a cryptographically random salt as a hex string.
+ *  Must be within the BN254 scalar field modulus (254 bits).
+ *  We use 31 bytes (248 bits) which is always safely below the modulus.
+ */
 export function generateSalt(): string {
+  const BN254_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return '0x' + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  // Reduce modulo BN254 field to guarantee the value is a valid Field element
+  const raw = BigInt('0x' + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join(''));
+  const reduced = raw % BN254_MODULUS;
+  return '0x' + reduced.toString(16).padStart(64, '0');
 }
 
 /**

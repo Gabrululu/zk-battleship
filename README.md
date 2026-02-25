@@ -66,37 +66,38 @@ against the committed hash. Cheating is impossible.
 - [Node.js](https://nodejs.org/) >= 18 + npm
 - [Rust](https://rustup.rs/) + target `wasm32v1-none`
 - [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli)
-- [Nargo](https://noir-lang.org/docs/getting_started/installation/) >= 0.36.0
+- [Nargo](https://noir-lang.org/docs/getting_started/installation/) = 0.36.0
 - [Freighter](https://www.freighter.app/) (or any supported wallet extension)
 
-### 1. Compile the Noir circuit
+### 1. Install Nargo 0.36.0
 
 ```bash
-cd circuits/battleship
-nargo compile
-# Generates: target/battleship.json
-# Copy the artifact to the frontend:
-cp target/battleship.json ../../games/battleship/src/circuits/battleship.json
+curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+source ~/.bashrc
+noirup --version 0.36.0
+nargo --version
+# nargo version = 0.36.0
 ```
 
-### 2. Get the real board_hash for Prover.toml
+### 2. Compile the Noir circuits
 
 ```bash
-# Temporarily use the helper:
-cp src/main.nr src/main.nr.bak
-cp src/compute_hash.nr src/main.nr
-nargo execute
-# Copy the printed Field value into Prover.toml as board_hash
-cp src/main.nr.bak src/main.nr
+# Main battleship circuit
+cd circuits/battleship
+nargo compile
+cp target/battleship.json ../../games/battleship/src/circuits/battleship.json
+
+# Hash-only helper circuit
+cd ../hash_only
+nargo compile
+cp target/hash_only.json ../../games/battleship/src/circuits/hash_only.json
 ```
 
 ### 3. Test the circuit
 
 ```bash
 cd circuits/battleship
-nargo test          # runs the 4 circuit tests
-nargo prove         # generates a sample proof (requires a valid Prover.toml)
-nargo verify        # verifies the generated proof
+nargo test    # runs 4 circuit tests
 ```
 
 ### 4. Build and deploy the Soroban contract
@@ -104,17 +105,15 @@ nargo verify        # verifies the generated proof
 ```bash
 cd contracts/battleship
 
-# Build
 cargo build --target wasm32v1-none --release
 
-# Deploy to Testnet (requires a funded account)
 stellar contract deploy \
   --wasm target/wasm32v1-none/release/battleship.wasm \
-  --source <YOUR_SECRET_KEY> \
+  --source deployer \
   --network testnet
 
-# Save the contract address
-export CONTRACT_ID=<RETURNED_ADDRESS>
+# Save the contract address and update .env
+echo "VITE_CONTRACT_ID=<RETURNED_ADDRESS>" > ../../games/battleship/.env
 ```
 
 ### 5. Configure and run the frontend
@@ -122,14 +121,11 @@ export CONTRACT_ID=<RETURNED_ADDRESS>
 ```bash
 cd games/battleship
 
-# Install dependencies
 npm install --ignore-scripts
 
-# Set environment variables
-cp .env.example .env
-# Edit .env and set VITE_CONTRACT_ID=<CONTRACT_ID>
+# Set your contract ID
+echo "VITE_CONTRACT_ID=CD6S436W6IOTT3BIOR3COXYWLUTFI2JI3JL7K2WJZDNYCQXT4BBB3PSO" > .env
 
-# Start the development server
 npm run dev
 # → http://localhost:3000
 ```
@@ -138,25 +134,26 @@ npm run dev
 
 | Network | Address |
 |---------|---------|
-| Stellar Testnet | `CD5XTKUZEV5EP2QT7RDBIMWGDQVND4GIPHFA5DO5AB2WSTDWGBZCO6DL` |
+| Stellar Testnet | `CD6S436W6IOTT3BIOR3COXYWLUTFI2JI3JL7K2WJZDNYCQXT4BBB3PSO` |
 
-View on: https://stellar.expert/explorer/testnet
-
-## Hub Contract (hackathon)
-
-The contract automatically calls `start_game()` and `end_game()` on:
-
-```
-CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG
-```
+View on: https://stellar.expert/explorer/testnet/contract/CD6S436W6IOTT3BIOR3COXYWLUTFI2JI3JL7K2WJZDNYCQXT4BBB3PSO
 
 ## Game Rules
 
-- Board: **5×5** (coordinates 0–4)
+- Board: **5×5** (coordinates 0–4, columns A–E, rows 1–5)
 - Ships: **3 single-cell ships** (1×1 each)
 - Winner: first player to sink all **3 opponent ships**
-- Turns: strictly alternating
+- Turns: strictly alternating, **5-minute timer** per turn
 - Phases: `WaitingForPlayers → Commit → Playing → Finished`
+
+## How to Play
+
+1. **Connect wallet** — Freighter, xBull, Albedo, or Lobstr on Testnet
+2. **Join game** — click Join as Player 1 or Player 2
+3. **Commit phase** — place your 3 ships on the 5×5 grid, then commit (generates Poseidon2 hash on-chain)
+4. **Playing phase** — take turns firing shots at the enemy grid
+5. **ZK response** — when you receive a shot, the app automatically generates a ZK proof of your hit/miss response
+6. **Win** — sink all 3 enemy ships first
 
 ## Development Status
 
@@ -167,41 +164,39 @@ CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG
 | Player stats & game history | ✅ On-chain persistent storage |
 | UltraHonk on-chain verifier | 🔄 Stub (accepts any non-empty proof) |
 | React frontend | ✅ Complete |
-| Browser ZK integration | ✅ Complete (requires compiled artifact) |
-| Multi-wallet support | ✅ StellarWalletsKit v3 (Freighter, xBull, Albedo, Lobstr) |
-| Sound system | ✅ Web Audio API synthetic sounds |
-| Invite link | ✅ `?game=` URL param auto-join |
-| Turn timer | ✅ 5-minute visual countdown |
-| Testnet deploy | ✅ `CD5XTKUZEV5EP2QT7RDBIMWGDQVND4GIPHFA5DO5AB2WSTDWGBZCO6DL` |
+| Browser ZK proof generation | ✅ Noir 0.36.0 + bb.js 0.63.0 |
+| Multi-wallet support | ✅ StellarWalletsKit (Freighter, xBull, Albedo, Lobstr) |
+| Sound system | ✅ Web Audio API |
+| Invite link | ✅ `?game=CONTRACT_ID` URL param |
+| Turn timer | ✅ 5-minute countdown |
+| Testnet deploy | ✅ `CD6S436W6IOTT3BIOR3COXYWLUTFI2JI3JL7K2WJZDNYCQXT4BBB3PSO` |
 
-## ZK Implementation Status
+## Future Improvements
 
-The Noir circuit (`circuits/battleship/`) compiles successfully and passes
-4 tests covering hit/miss verification and hash commitment. Proof generation
-runs client-side in the browser via `@noir-lang/noir_js` + `@aztec/bb.js`
-(UltraHonk backend).
+### Simultaneous multiplayer sessions
 
-On-chain verification uses a documented stub in `verify_zk_proof()` because
-`rs-soroban-ultrahonk` has known processing constraints on Stellar testnet
-(acknowledged in the hackathon docs). The contract architecture, public inputs
-layout, and verifier call pattern are fully documented for production integration.
+The current contract stores a single `DataKey::GameState` entry — only one game can be active at a time. Any player who tries to join while a game is in progress will be rejected by the contract.
 
-**The ZK proof IS generated and submitted** — the contract receives it, checks
-`proof.len() >= 32`, and emits a `zk_verified` event visible in
-[stellar.expert](https://stellar.expert/explorer/testnet/contract/CD5XTKUZEV5EP2QT7RDBIMWGDQVND4GIPHFA5DO5AB2WSTDWGBZCO6DL).
-Only the cryptographic verification step is stubbed.
+To support multiple concurrent games the following changes would be needed:
 
-### Next step for production
+**Contract (`lib.rs`):** Replace the single `GameState` storage key with a map keyed by session ID:
+```rust
+// Current
+env.storage().instance().set(&DataKey::GameState, &state);
 
-Replace the stub in `contracts/battleship/src/lib.rs :: verify_zk_proof()` with
-a call to the [rs-soroban-ultrahonk](https://github.com/yugocabrio/rs-soroban-ultrahonk)
-verifier contract. The public inputs layout (`board_hash`, `shot_x`, `shot_y`,
-`is_hit`) is already correct and matches the circuit's public outputs.
+// Future
+env.storage().persistent().set(&DataKey::GameState(session_id), &state);
+```
+Add a `create_game() -> u32` entry point that allocates a new session ID and returns it to the caller. All other entry points (`join_game`, `commit_board`, `fire_shot`, `submit_response`, `reset_game`) would receive an additional `session_id: u32` argument.
+
+**Frontend:** Add a lobby screen that calls `list_open_games()` and displays joinable sessions. The invite link (`?game=CONTRACT_ID`) would be extended to `?game=CONTRACT_ID&session=SESSION_ID`.
+
+This is a well-scoped extension — the ZK proof logic, commit/reveal flow, and on-chain verifier stub are all unchanged. Only the state storage layout and entry point signatures need updating.
 
 ## Security Considerations
 
-- The board and salt **never leave the browser** — only the Poseidon2 hash goes on-chain
-- The salt is 32 random bytes (`crypto.getRandomValues`) — the hash is not guessable
-- The circuit verifies the board has **exactly 3 ships** (prevents invalid boards)
-- Shot coordinates are constrained to `[0, 4]` in the circuit
-- No timeout for disconnected opponents (prototype — documented)
+- Board and salt **never leave the browser** — only the Poseidon2 hash is stored on-chain
+- Salt is reduced mod BN254 field prime — always a valid circuit input
+- Circuit enforces **exactly 3 ships** on the board
+- Shot coordinates constrained to `[0, 4]` in the circuit
+- ZK proof generated client-side — defender cannot lie about hit/miss

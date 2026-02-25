@@ -13,7 +13,6 @@ const xbullMod = new xBullModule();
 const albedoMod = new AlbedoModule();
 const lobstrMod = new LobstrModule();
 
-// Use locally served icons (public/wallet-icons/) to avoid broken CDN images
 freighterMod.productIcon = '/wallet-icons/freighter.png';
 xbullMod.productIcon = '/wallet-icons/xbull.png';
 albedoMod.productIcon = '/wallet-icons/albedo.png';
@@ -38,7 +37,6 @@ export interface UseWallet {
   connect: () => Promise<void>;
   disconnect: () => void;
   signTransaction: (xdr: string) => Promise<string>;
-  // compat shim — same shape App.tsx / GameLobby.tsx already use
   connected: boolean;
   address: string | null;
   connecting: boolean;
@@ -57,7 +55,6 @@ const INITIAL: WalletState = {
 export function useWallet(): UseWallet {
   const [state, setState] = useState<WalletState>(INITIAL);
 
-  // Listen for kit state changes (address updates, disconnects)
   useEffect(() => {
     const offState = StellarWalletsKit.on(KitEventType.STATE_UPDATED, (ev) => {
       const addr = ev.payload.address ?? null;
@@ -94,8 +91,7 @@ export function useWallet(): UseWallet {
         connecting: false,
         error: null,
       }));
-    } catch (err) {
-      // User closed the modal — not a real error
+    } catch (err) {     
       const msg = err instanceof Error ? err.message : String(err);
       const isCancel = msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('close');
       setState((s) => ({
@@ -118,9 +114,7 @@ export function useWallet(): UseWallet {
     });
     return signedTxXdr;
   }, [state.address]);
-
-  // Compat shim: getSignTx(passphrase) => (xdr) => Promise<string>
-  // The passphrase arg is ignored — kit uses the one set at init time.
+  
   const getSignTx = useCallback(
     (_passphrase: string) => async (xdr: string): Promise<string> => {
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(xdr, {
@@ -136,8 +130,7 @@ export function useWallet(): UseWallet {
     state,
     connect,
     disconnect,
-    signTransaction,
-    // flat compat props
+    signTransaction,  
     connected: state.connected,
     address: state.address,
     connecting: state.connecting,
